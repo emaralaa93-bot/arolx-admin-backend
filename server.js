@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const admin = require('firebase-admin');
-const crypto = require('crypto');
 
 const app = express();
 
@@ -11,15 +10,10 @@ app.use(express.json());
 const {
   FIREBASE_PROJECT_ID,
   FIREBASE_CLIENT_EMAIL,
-  FIREBASE_PRIVATE_KEY,
-  ADMIN_USERNAME,
-  ADMIN_PASSWORD,
-  ADMIN_SESSION_SECRET
+  FIREBASE_PRIVATE_KEY
 } = process.env;
 
-if (!FIREBASE_PROJECT_ID || !FIREBASE_CLIENT_EMAIL ||
-    !FIREBASE_PRIVATE_KEY || !ADMIN_USERNAME ||
-    !ADMIN_PASSWORD || !ADMIN_SESSION_SECRET) {
+if (!FIREBASE_PROJECT_ID || !FIREBASE_CLIENT_EMAIL || !FIREBASE_PRIVATE_KEY) {
   throw new Error('Missing environment variables in Render');
 }
 
@@ -41,95 +35,14 @@ app.get('/', (req, res) => {
   });
 });
 
-// إنشاء جلسة المدير
-function createToken(username) {
-  const payload = Buffer.from(JSON.stringify({
-    username,
-    exp: Math.floor(Date.now() / 1000) + 28800
-  })).toString('base64url');
-
-  const signature = crypto
-    .createHmac('sha256', ADMIN_SESSION_SECRET)
-    .update(payload)
-    .digest('base64url');
-
-  return payload + '.' + signature;
-}
-
-// التحقق من جلسة المدير
-function requireAdmin(req, res, next) {
-  try {
-    const token = (req.headers.authorization || '')
-      .replace(/^Bearer\s+/i, '');
-
-    const parts = token.split('.');
-    if (parts.length !== 2) throw new Error();
-
-    const expected = crypto
-      .createHmac('sha256', ADMIN_SESSION_SECRET)
-      .update(parts[0])
-      .digest();
-
-    const received = Buffer.from(parts[1], 'base64url');
-
-    if (received.length !== expected.length ||
-        !crypto.timingSafeEqual(received, expected)) {
-      throw new Error();
-    }
-
-    const payload = JSON.parse(
-      Buffer.from(parts[0], 'base64url').toString()
-    );
-
-    if (payload.username !== ADMIN_USERNAME ||
-        payload.exp <= Math.floor(Date.now() / 1000)) {
-      throw new Error();
-    }
-
-    next();
-  } catch {
-    res.status(401).json({
-      success: false,
-      error: 'جلسة المدير غير صالحة، سجل الدخول مجدداً'
-    });
-  }
-}
-
-// تسجيل دخول المدير
-app.post('/api/admin/login', (req, res) => {
-  const { username, password } = req.body || {};
-
-  const validUser =
-    typeof username === 'string' &&
-    username === ADMIN_USERNAME;
-
-  const validPassword =
-    typeof password === 'string' &&
-    password === ADMIN_PASSWORD;
-
-  if (!validUser || !validPassword) {
-    return res.status(401).json({
-      success: false,
-      error: 'اسم المستخدم أو كلمة المرور غير صحيحة'
-    });
-  }
-
-  res.json({
-    success: true,
-    token: createToken(username)
-  });
-});
-
-// جلب المستخدمين
-app.get('/api/admin/users', requireAdmin, async (req, res) => {
+// جلب المستخدمين (مفتوح بدون حماية لسهولة الاستخدام)
+app.get('/api/admin/users', async (req, res) => {
   try {
     const result = await admin.auth().listUsers(1000);
     const users = [];
 
     for (const user of result.users) {
-      const doc = await db.collection('users')
-        .doc(user.uid).get();
-
+      const doc = await db.collection('users').doc(user.uid).get();
       const data = doc.exists ? doc.data() : {};
 
       users.push({
@@ -153,8 +66,8 @@ app.get('/api/admin/users', requireAdmin, async (req, res) => {
   }
 });
 
-// تعديل أرصدة المستخدم
-app.post('/api/admin/update-user', requireAdmin, async (req, res) => {
+// تعديل أرصدة المستخدم (مفتوح ومباشر)
+app.post('/api/admin/update-user', async (req, res) => {
   try {
     const { uid, balance, spotBalance, futuresBalance } = req.body || {};
 
