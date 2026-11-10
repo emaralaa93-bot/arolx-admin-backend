@@ -1,4 +1,3 @@
-
 const express = require('express');
 const cors = require('cors');
 const admin = require('firebase-admin');
@@ -17,6 +16,7 @@ app.use(cors({
       return callback(null, true);
     }
 
+    console.log('Blocked CORS origin:', origin);
     callback(new Error('Origin not allowed'));
   },
   methods: ['GET', 'POST', 'OPTIONS'],
