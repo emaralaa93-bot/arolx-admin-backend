@@ -155,6 +155,76 @@ app.get('/', (req, res) => {
   });
 });
 
+// مسار التشخيص الآمن الشامل (قراءة وفحص اتصال فقط - محمي بتوكن المدير)
+app.get('/api/admin/diagnostic', requireAdmin, async (req, res) => {
+  const diagnosticResults = {
+    timestamp: new Date().toISOString(),
+    firestoreConnectionTest: { status: 'PENDING' },
+    usersCollectionTest: { status: 'PENDING' },
+    adminDocumentTest: { status: 'PENDING' }
+  };
+
+  // 1. اختبار الاتصال بقاعدة البيانات عبر db.listCollections()
+  try {
+    const collections = await db.listCollections();
+    diagnosticResults.firestoreConnectionTest = {
+      status: 'SUCCESS',
+      collectionsCountAtRoot: collections.length,
+      collectionIds: collections.map(col => col.id)
+    };
+  } catch (error) {
+    diagnosticResults.firestoreConnectionTest = {
+      status: 'FAILED',
+      errorCode: error.code || 'UNKNOWN',
+      errorMessage: error.message
+    };
+  }
+
+  // 2. اختبار قراءة المسار: artifacts/arolx-platform/public/data/users
+  try {
+    const usersCollectionRef = db.collection('artifacts/arolx-platform/public/data/users');
+    const snapshot = await usersCollectionRef.limit(10).get();
+    
+    diagnosticResults.usersCollectionTest = {
+      status: 'SUCCESS',
+      path: 'artifacts/arolx-platform/public/data/users',
+      documentsCountFetched: snapshot.size,
+      sampleDocIds: snapshot.docs.map(doc => doc.id)
+    };
+  } catch (error) {
+    diagnosticResults.usersCollectionTest = {
+      status: 'FAILED',
+      path: 'artifacts/arolx-platform/public/data/users',
+      errorCode: error.code || 'UNKNOWN',
+      errorMessage: error.message
+    };
+  }
+
+  // 3. اختبار قراءة المستند المعروف: admins/u35b6tfsd4W0J9d1KjauHfIV8VB3
+  try {
+    const adminDocRef = db.doc('admins/u35b6tfsd4W0J9d1KjauHfIV8VB3');
+    const docSnap = await adminDocRef.get();
+    
+    diagnosticResults.adminDocumentTest = {
+      status: 'SUCCESS',
+      path: 'admins/u35b6tfsd4W0J9d1KjauHfIV8VB3',
+      exists: docSnap.exists
+    };
+  } catch (error) {
+    diagnosticResults.adminDocumentTest = {
+      status: 'FAILED',
+      path: 'admins/u35b6tfsd4W0J9d1KjauHfIV8VB3',
+      errorCode: error.code || 'UNKNOWN',
+      errorMessage: error.message
+    };
+  }
+
+  res.json({
+    success: true,
+    diagnostic: diagnosticResults
+  });
+});
+
 // تسجيل دخول المدير
 app.post('/api/admin/login', (req, res) => {
   const { username, password } = req.body || {};
@@ -176,7 +246,7 @@ app.post('/api/admin/login', (req, res) => {
   });
 });
 
-// جلب المستخدمين
+// جلب المستخدمين (حسب النسخة الحالية)
 app.get('/api/admin/users', requireAdmin, async (req, res) => {
   try {
     const result = await admin.auth().listUsers(1000);
@@ -206,67 +276,17 @@ app.get('/api/admin/users', requireAdmin, async (req, res) => {
 
     res.status(500).json({
       success: false,
-      error: 'فشل جلب المستخدمين'
+      error: 'فشل جلب المستخدمين: ' + error.message
     });
   }
 });
 
-// تعديل الأرصدة
-app.post('/api/admin/update-user', requireAdmin, async (req, res) => {
-  try {
-    const {
-      uid,
-      balance,
-      spotBalance,
-      futuresBalance
-    } = req.body || {};
-
-    if (typeof uid !== 'string' || !uid.trim()) {
-      return res.status(400).json({
-        success: false,
-        error: 'معرف المستخدم مطلوب'
-      });
-    }
-
-    const raw = [balance, spotBalance, futuresBalance];
-
-    if (raw.some(v =>
-      v === undefined || v === null || String(v).trim() === ''
-    )) {
-      return res.status(400).json({
-        success: false,
-        error: 'يجب إدخال جميع الأرصدة'
-      });
-    }
-
-    const values = raw.map(Number);
-
-    if (values.some(v => !Number.isFinite(v) || v < 0)) {
-      return res.status(400).json({
-        success: false,
-        error: 'الأرصدة غير صحيحة'
-      });
-    }
-
-    await db.collection('users').doc(uid).set({
-      balance: values[0],
-      spotBalance: values[1],
-      futuresBalance: values[2]
-    }, { merge: true });
-
-    res.json({
-      success: true,
-      message: 'تم حفظ الأرصدة بنجاح'
-    });
-
-  } catch (error) {
-    console.error('Update error:', error);
-
-    res.status(500).json({
-      success: false,
-      error: 'فشل تحديث الأرصدة'
-    });
-  }
+// تعديل الأرصدة (معطل تماماً أثناء التشخيص لضمان عدم حدوث أي كتابة)
+app.post('/api/admin/update-user', requireAdmin, (req, res) => {
+  res.status(503).json({
+    success: false,
+    error: 'مسار التعديل معطل مؤقتاً لأغراض التشخيص والفحص الآمن.'
+  });
 });
 
 // المسارات غير الموجودة
