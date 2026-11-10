@@ -1,3 +1,4 @@
+
 const express = require('express');
 const cors = require('cors');
 const admin = require('firebase-admin');
@@ -5,6 +6,7 @@ const crypto = require('crypto');
 
 const app = express();
 
+// إعداد CORS
 app.use(cors({
   origin: (origin, callback) => {
     const allowed = (
@@ -12,7 +14,12 @@ app.use(cors({
       'https://sites.google.com'
     ).split(',').map(x => x.trim());
 
-    if (!origin || allowed.includes(origin)) {
+    const isAllowed =
+      !origin ||
+      allowed.includes(origin) ||
+      /^https:\/\/\d+-atari-embeds\.googleusercontent\.com$/.test(origin);
+
+    if (isAllowed) {
       return callback(null, true);
     }
 
@@ -51,6 +58,7 @@ if (ADMIN_SESSION_SECRET.length < 32) {
   throw new Error('ADMIN_SESSION_SECRET must be at least 32 characters');
 }
 
+// تهيئة Firebase
 admin.initializeApp({
   credential: admin.credential.cert({
     projectId: FIREBASE_PROJECT_ID,
@@ -71,6 +79,7 @@ function safeEqual(a, b) {
     crypto.timingSafeEqual(first, second);
 }
 
+// إنشاء جلسة المدير
 function createToken() {
   const payload = Buffer.from(JSON.stringify({
     sub: 'admin',
@@ -85,6 +94,7 @@ function createToken() {
   return payload + '.' + signature;
 }
 
+// التحقق من الجلسة
 function verifyToken(token) {
   const parts = token.split('.');
 
@@ -111,6 +121,7 @@ function verifyToken(token) {
   }
 }
 
+// حماية لوحة الإدارة
 function requireAdmin(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ')
@@ -156,7 +167,7 @@ app.post('/api/admin/login', (req, res) => {
   });
 });
 
-// جلب المستخدمين - محمي
+// جلب المستخدمين
 app.get('/api/admin/users', requireAdmin, async (req, res) => {
   try {
     const result = await admin.auth().listUsers(1000);
@@ -191,7 +202,7 @@ app.get('/api/admin/users', requireAdmin, async (req, res) => {
   }
 });
 
-// تعديل الأرصدة - محمي
+// تعديل أرصدة المستخدم
 app.post('/api/admin/update-user', requireAdmin, async (req, res) => {
   try {
     const {
@@ -210,7 +221,11 @@ app.post('/api/admin/update-user', requireAdmin, async (req, res) => {
 
     const raw = [balance, spotBalance, futuresBalance];
 
-    if (raw.some(v => v === undefined || v === null || String(v).trim() === '')) {
+    if (raw.some(v =>
+      v === undefined ||
+      v === null ||
+      String(v).trim() === ''
+    )) {
       return res.status(400).json({
         success: false,
         error: 'يجب إدخال جميع الأرصدة'
@@ -247,6 +262,7 @@ app.post('/api/admin/update-user', requireAdmin, async (req, res) => {
   }
 });
 
+// المسارات غير الموجودة
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -254,6 +270,7 @@ app.use((req, res) => {
   });
 });
 
+// معالجة الأخطاء
 app.use((err, req, res, next) => {
   console.error(err.message);
 
