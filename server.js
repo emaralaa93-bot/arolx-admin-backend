@@ -5,12 +5,11 @@ const crypto = require('crypto');
 
 const app = express();
 
-// إعداد CORS
 app.use(cors({
   origin: (origin, callback) => {
     const allowed = (
       process.env.ADMIN_ALLOWED_ORIGINS ||
-      'https://sites.google.com'
+      'https://sites.google.com,https://googleusercontent.com'
     ).split(',').map(x => x.trim());
 
     const isAllowed =
@@ -57,14 +56,28 @@ if (ADMIN_SESSION_SECRET.length < 32) {
   throw new Error('ADMIN_SESSION_SECRET must be at least 32 characters');
 }
 
-// تهيئة Firebase
+// تجهيز وفحص مفتاح Firebase
+const normalizedPrivateKey = FIREBASE_PRIVATE_KEY
+  .replace(/^["']|["']$/g, '')
+  .replace(/\\n/g, '\n')
+  .replace(/\r\n/g, '\n')
+  .trim();
+
+try {
+  crypto.createPrivateKey(normalizedPrivateKey);
+  console.log('Firebase private key format is valid');
+} catch (error) {
+  throw new Error(
+    'FIREBASE_PRIVATE_KEY is invalid: ' + error.message
+  );
+}
+
+// تشغيل Firebase
 admin.initializeApp({
   credential: admin.credential.cert({
     projectId: FIREBASE_PROJECT_ID,
     clientEmail: FIREBASE_CLIENT_EMAIL,
-    privateKey: FIREBASE_PRIVATE_KEY
-      .replace(/\\n/g, '\n')
-      .trim()
+    privateKey: normalizedPrivateKey
   })
 });
 
@@ -78,7 +91,6 @@ function safeEqual(a, b) {
     crypto.timingSafeEqual(first, second);
 }
 
-// إنشاء جلسة المدير
 function createToken() {
   const payload = Buffer.from(JSON.stringify({
     sub: 'admin',
@@ -93,7 +105,6 @@ function createToken() {
   return payload + '.' + signature;
 }
 
-// التحقق من الجلسة
 function verifyToken(token) {
   const parts = token.split('.');
 
@@ -120,7 +131,6 @@ function verifyToken(token) {
   }
 }
 
-// حماية لوحة الإدارة
 function requireAdmin(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ')
@@ -201,7 +211,7 @@ app.get('/api/admin/users', requireAdmin, async (req, res) => {
   }
 });
 
-// تعديل أرصدة المستخدم
+// تعديل الأرصدة
 app.post('/api/admin/update-user', requireAdmin, async (req, res) => {
   try {
     const {
@@ -221,9 +231,7 @@ app.post('/api/admin/update-user', requireAdmin, async (req, res) => {
     const raw = [balance, spotBalance, futuresBalance];
 
     if (raw.some(v =>
-      v === undefined ||
-      v === null ||
-      String(v).trim() === ''
+      v === undefined || v === null || String(v).trim() === ''
     )) {
       return res.status(400).json({
         success: false,
@@ -272,6 +280,13 @@ app.use((req, res) => {
 // معالجة الأخطاء
 app.use((err, req, res, next) => {
   console.error(err.message);
+
+  if (err.message === 'Origin not allowed') {
+    return res.status(403).json({
+      success: false,
+      error: 'الاتصال غير مسموح'
+    });
+  }
 
   res.status(500).json({
     success: false,
